@@ -710,3 +710,7 @@ $$encoding = \frac{mean \cdot n + global\_mean \cdot \alpha}{n + \alpha}$$
     * Or fallback encoding
 
 __Trade-offs:__
+| Benefit                  | Risk                         |
+| ------------------------ | ---------------------------- |
+| Captures signal          | Leakage risk                 |
+| Handles high cardinality | Needs careful implementation |
