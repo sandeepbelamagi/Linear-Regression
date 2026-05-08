@@ -2,7 +2,7 @@
 ## 1. Structured Explanation
 ### ✅ Core Intuition
 
-    Linear Regression is about fitting the best straight line (or hyperplane) that explains the relationship between input features and a continuous target.
+Linear Regression is about fitting the best straight line (or hyperplane) that explains the relationship between input features and a continuous target.
 
 __Think:__
 
