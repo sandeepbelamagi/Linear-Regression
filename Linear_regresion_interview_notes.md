@@ -46,7 +46,7 @@ It learns parameters by minimizing:
     what happens when the data is actually non-linear?
     How does the model behave, and what are your options?
 ### My Answer: 
-    if data is non linear then the model under fits and shows systematic errors, then I'll choose any non linear model or transform the data using standardisation.
+if data is non linear then the model under fits and shows systematic errors, then I'll choose any non linear model or transform the data using standardisation.
 
 ### ✅ Ideal Interview Answer
 
@@ -92,7 +92,7 @@ You trained a Linear Regression model and:
 
 What’s going wrong? How would you debug and fix it in a real system?
 #### My Answer:
-    if the model shows train error is low and test error is high then the model over fits then either I reduce the features or I use regularisation.
+if the model shows train error is low and test error is high then the model over fits then either I reduce the features or I use regularisation.
 
 #### 🔹 Q2: Train Low Error, Test High Error
 
@@ -139,7 +139,7 @@ You said standardization helps with non-linearity — it doesn’t.
 __What does standardization actually do, and why is it important for Linear Regression?__
 
 #### My Answer:
-    standardisation actually rescale the data to zero mean and unit variance improving optimisation stability and making regularisation fair.
+standardisation actually rescale the data to zero mean and unit variance improving optimisation stability and making regularisation fair.
 
 ### 🏭 Production Scenario
 
