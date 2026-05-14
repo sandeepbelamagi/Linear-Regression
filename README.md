@@ -12,9 +12,8 @@ Covers the full ML lifecycle: EDA → preprocessing → feature engineering → 
 sales-forecasting/
 │
 ├── data/
-│   ├── raw/
-│   │   └── train.csv              ← Raw dataset (50 stores, 2 years)
-│   └── processed/                 ← Preprocessed data (generated at runtime)
+│   └── raw/
+│       └── train.csv              ← Raw dataset (50 stores, 2 years)
 │
 ├── src/
 │   ├── eda.py                     ← Phase 1: EDA & findings
@@ -42,15 +41,17 @@ sales-forecasting/
 ├── outputs/                        ← All plots, model .pkl files, reports
 │   └── models/                    ← Saved model artifacts
 │
-├── tests/                         ← Unit tests (add as you build)
 ├── run_pipeline.py                ← Entry point: run all or specific phases
+├── Dockerfile                     ← Multi-stage build (training + serving targets)
+├── docker-compose.yml             ← train + api services with shared volume
+├── .dockerignore
 ├── requirements.txt
 └── README.md
 ```
 
 ---
 
-## Quickstart
+## Quickstart (Local)
 
 ```bash
 # 1. Install dependencies
@@ -72,6 +73,48 @@ curl -X POST http://localhost:8000/predict \
   -d '{"store_id": 1, "date": "2024-01-15", "day_of_week": 1,
        "promo": 1, "store_type": "a", "assortment": "basic"}'
 ```
+
+---
+
+## Docker Deployment
+
+The project ships with a multi-stage `Dockerfile` and `docker-compose.yml` for production deployment.
+
+### Build & Run with Docker Compose
+
+```bash
+# Step 1: Train models (writes artifacts to a shared volume)
+docker compose up train
+
+# Step 2: Start the API (reads trained models from the shared volume)
+docker compose up api -d
+
+# Check health
+curl http://localhost:8000/health
+
+# View logs
+docker compose logs -f api
+```
+
+### Build Targets Individually
+
+```bash
+# Training image — runs the full pipeline
+docker build --target training -t sales-forecast-train .
+docker run -v $(pwd)/outputs:/app/outputs sales-forecast-train
+
+# Serving image — production API with gunicorn + uvicorn workers
+docker build --target serving -t sales-forecast-api .
+docker run -p 8000:8000 -v $(pwd)/outputs:/app/outputs:ro sales-forecast-api
+```
+
+### Production Notes
+
+- **Serving** uses Gunicorn with 4 Uvicorn workers behind a non-root user
+- **Health check** on `/health` is built into the Docker image and Compose config
+- The `train` and `api` services share a `model-artifacts` Docker volume so trained `.pkl` files flow from training to serving
+- Restart policy (`unless-stopped`) keeps the API up across host reboots
+- Override worker count via the `GUNICORN_WORKERS` environment variable
 
 ---
 

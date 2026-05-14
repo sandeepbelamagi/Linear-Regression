@@ -1,0 +1,15 @@
+.git
+.idea
+.claude
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.env
+.venv
+env/
+venv/
+outputs/
+*.pkl
+.DS_Store
+Linear_regresion_interview_notes.md

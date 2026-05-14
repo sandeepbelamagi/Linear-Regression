@@ -1,0 +1,32 @@
+services:
+  train:
+    build:
+      context: .
+      target: training
+    volumes:
+      - model-artifacts:/app/outputs
+      - ./data:/app/data:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  api:
+    build:
+      context: .
+      target: serving
+    ports:
+      - "8000:8000"
+    volumes:
+      - model-artifacts:/app/outputs:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - GUNICORN_WORKERS=4
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  model-artifacts:
