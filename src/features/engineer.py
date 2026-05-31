@@ -123,7 +123,7 @@ class TrendFeatureBuilder(BaseEstimator, TransformerMixin):
     @staticmethod
     def _slope(series: pd.Series) -> float:
         """Compute slope of linear regression over a series."""
-        y = series.values
+        y = series if isinstance(series, np.ndarray) else np.array(series)
         if len(y) < 2:
             return 0.0
         x = np.arange(len(y))

@@ -178,9 +178,10 @@ def plot_feature_analysis(df: pd.DataFrame) -> None:
     axes[1, 0].set_title("Correlation Matrix\n(Customers-Sales: 0.924 → leakage risk!)")
 
     # Boxplot: Sales by Assortment
-    assortment_order = open_df.groupby("Assortment")["Sales"].median().sort_values().index
-    open_df.boxplot(column="Sales", by="Assortment", ax=axes[1, 1],
-                    order=assortment_order, patch_artist=True)
+    assortment_order = open_df.groupby("Assortment")["Sales"].median().sort_values().index.tolist()
+    plot_data = [open_df[open_df["Assortment"] == a]["Sales"].dropna().values
+             for a in assortment_order]
+    axes[1, 1].boxplot(plot_data, labels=assortment_order, patch_artist=True)
     axes[1, 1].set_title("Sales Distribution by Assortment")
     axes[1, 1].set_xlabel("Assortment")
     axes[1, 1].set_ylabel("Sales")
