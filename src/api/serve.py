@@ -43,6 +43,13 @@ import time
 import logging
 from pathlib import Path
 from datetime import datetime
+import sys
+import os
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
@@ -55,6 +62,9 @@ logger = logging.getLogger(__name__)
 ROOT       = Path(__file__).resolve().parent.parent.parent
 MODEL_DIR  = ROOT / "outputs" / "models"
 OUTPUT_DIR = ROOT / "outputs"
+MPLCONFIGDIR = ROOT / ".tmp" / "mplconfig"
+MPLCONFIGDIR.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MPLCONFIGDIR", str(MPLCONFIGDIR))
 
 app = FastAPI(
     title="Sales Forecasting API",
@@ -77,6 +87,7 @@ class ModelRegistry:
     feature_names = None
     loaded_at     = None
     train_median  = None  # for filling NaN from lag features
+    raw_history   = None
 
 registry = ModelRegistry()
 
@@ -88,24 +99,44 @@ async def load_models():
     try:
         import sys
         sys.path.insert(0, str(ROOT / "src"))
-        from preprocessing.pipeline import build_preprocessing_pipeline
+        from features.engineer import apply_feature_engineering
+        from preprocessing.pipeline import build_preprocessing_pipeline, time_based_split
 
-        # Try to load serialised models; fall back to lightweight stubs
-        pipeline_path = MODEL_DIR / "preprocessing_pipeline.pkl"
-        if pipeline_path.exists():
-            registry.pipeline = joblib.load(pipeline_path)
-        else:
-            registry.pipeline = build_preprocessing_pipeline()
+        registry.raw_history = pd.read_csv(
+            ROOT / "data" / "raw" / "train.csv",
+            parse_dates=["Date"],
+        ).sort_values(["Store", "Date"]).reset_index(drop=True)
+
+        # Recreate the same preprocessing fit used during training so
+        # inference feature names and target encodings line up with the models.
+        engineered = apply_feature_engineering(registry.raw_history)
+        train_raw, _ = time_based_split(engineered, test_months=3)
+        train_input = train_raw.drop(columns=["Sales", "Customers"], errors="ignore")
+        y_train = train_raw.loc[train_raw["Open"] == 1, "Sales"].values
+
+        registry.pipeline = build_preprocessing_pipeline()
+        X_train_df = registry.pipeline.fit_transform(train_input, y_train)
+        registry.feature_names = list(X_train_df.columns)
+        registry.train_median = X_train_df.median(numeric_only=True)
+
+        import __main__
+        from models.uncertainty import BootstrapEnsemble, TieredRouter
+
+        setattr(__main__, "BootstrapEnsemble", BootstrapEnsemble)
+        setattr(__main__, "TieredRouter", TieredRouter)
 
         for model_name, attr in [
             ("XGBoost.pkl",            "accurate_model"),
-            ("Ridge__L2_.pkl",         "fast_model"),
+            ("Ridge_(L2).pkl",         "fast_model"),
             ("bootstrap_ensemble.pkl", "ensemble"),
             ("tiered_router.pkl",      "router"),
         ]:
             path = MODEL_DIR / model_name
             if path.exists():
-                setattr(registry, attr, joblib.load(path))
+                try:
+                    setattr(registry, attr, joblib.load(path))
+                except Exception as model_exc:
+                    logger.warning(f"Could not load {model_name}: {model_exc}")
 
         registry.loaded_at = datetime.utcnow().isoformat()
         logger.info("Models loaded successfully.")
@@ -188,19 +219,137 @@ def request_to_dataframe(req: PredictionRequest) -> pd.DataFrame:
     }])
 
 
-def preprocess_request(df: pd.DataFrame) -> np.ndarray:
-    """Apply pipeline and return feature array."""
+def _fallback_feature_matrix() -> np.ndarray:
+    """Return a safe fallback matrix with the expected feature width."""
+    if isinstance(registry.train_median, pd.Series) and registry.feature_names:
+        fallback = registry.train_median.reindex(registry.feature_names).fillna(0)
+        return pd.DataFrame([fallback]).values.astype(float)
+
+    width = len(registry.feature_names) if registry.feature_names else 29
+    return np.zeros((1, width), dtype=float)
+
+
+def _build_request_history_frame(req: PredictionRequest) -> pd.DataFrame:
+    """Build a short per-store time series so lag/rolling features exist."""
+    if registry.raw_history is None:
+        raise RuntimeError("Raw history not loaded.")
+
+    request_date = pd.Timestamp(req.date)
+    store_history = registry.raw_history[registry.raw_history["Store"] == req.store_id].copy()
+    if store_history.empty:
+        raise RuntimeError(f"No historical data available for store {req.store_id}.")
+
+    store_history["Date"] = pd.to_datetime(store_history["Date"])
+    store_history = store_history.sort_values("Date")
+    history_min = store_history["Date"].min()
+    history_max = store_history["Date"].max()
+
+    if request_date < history_min:
+        window_start = request_date - pd.Timedelta(days=90)
+    elif request_date <= history_max:
+        window_start = history_min
+    else:
+        window_start = max(history_min, request_date - pd.Timedelta(days=90))
+
+    calendar = pd.DataFrame({"Date": pd.date_range(window_start, request_date, freq="D")})
+    calendar["Store"] = req.store_id
+    calendar["DayOfWeek"] = calendar["Date"].dt.dayofweek + 1
+    calendar["Open"] = (calendar["Date"].dt.dayofweek != 6).astype(int)
+    calendar["Promo"] = 0
+    calendar["StateHoliday"] = "0"
+    calendar["SchoolHoliday"] = 0
+    calendar["StoreType"] = req.store_type
+    calendar["Assortment"] = req.assortment
+    calendar["CompetitionDistance"] = req.competition_distance
+    calendar["Promo2"] = req.promo2
+    calendar["Sales"] = np.nan
+    calendar["Customers"] = np.nan
+
+    history_idx = store_history.set_index("Date")
+    reindexed = history_idx.reindex(calendar["Date"])
+    for col in [
+        "Sales",
+        "Customers",
+        "Open",
+        "Promo",
+        "StateHoliday",
+        "SchoolHoliday",
+        "StoreType",
+        "Assortment",
+        "CompetitionDistance",
+        "Promo2",
+        "DayOfWeek",
+    ]:
+        if col in reindexed.columns:
+            calendar[col] = reindexed[col].combine_first(calendar[col])
+
+    latest = store_history.iloc[-1]
+    request_mask = calendar["Date"] == request_date
+    calendar.loc[request_mask, "Store"] = req.store_id
+    calendar.loc[request_mask, "DayOfWeek"] = req.day_of_week
+    calendar.loc[request_mask, "Open"] = 1
+    calendar.loc[request_mask, "Promo"] = req.promo
+    calendar.loc[request_mask, "StateHoliday"] = req.state_holiday
+    calendar.loc[request_mask, "SchoolHoliday"] = req.school_holiday
+    calendar.loc[request_mask, "StoreType"] = req.store_type
+    calendar.loc[request_mask, "Assortment"] = req.assortment
+    calendar.loc[request_mask, "CompetitionDistance"] = (
+        req.competition_distance
+        if req.competition_distance is not None
+        else latest.get("CompetitionDistance")
+    )
+    calendar.loc[request_mask, "Promo2"] = req.promo2
+    calendar.loc[request_mask, "Sales"] = np.nan
+    calendar.loc[request_mask, "Customers"] = latest.get("Customers", 0)
+
+    sales_proxy = float(store_history["Sales"].tail(30).mean())
+    if np.isnan(sales_proxy):
+        sales_proxy = float(registry.raw_history["Sales"].median())
+
+    future_mask = (calendar["Date"] < request_date) & calendar["Sales"].isna()
+    calendar.loc[future_mask, "Sales"] = sales_proxy
+    calendar["Customers"] = calendar["Customers"].fillna(
+        float(store_history["Customers"].median()) if "Customers" in store_history.columns else 0
+    )
+    calendar["CompetitionDistance"] = calendar["CompetitionDistance"].fillna(
+        latest.get("CompetitionDistance")
+    )
+    calendar["Promo2"] = calendar["Promo2"].fillna(int(latest.get("Promo2", 0)))
+    calendar["StoreType"] = calendar["StoreType"].fillna(req.store_type)
+    calendar["Assortment"] = calendar["Assortment"].fillna(req.assortment)
+
+    return calendar.sort_values("Date").reset_index(drop=True)
+
+
+def preprocess_request(req: PredictionRequest) -> np.ndarray:
+    """Build request features, apply pipeline, and return feature array."""
     if registry.pipeline is None:
         raise RuntimeError("Preprocessing pipeline not loaded.")
 
     try:
-        X = registry.pipeline.transform(df)
-    except Exception:
-        # Pipeline not fitted yet — return zeros (graceful fallback)
-        X = pd.DataFrame(np.zeros((1, 20)))
+        history_frame = _build_request_history_frame(req)
+        engineered = history_frame.copy()
 
-    X = X.fillna(0)
-    return X.values.astype(float)
+        import sys
+        sys.path.insert(0, str(ROOT / "src"))
+        from features.engineer import apply_feature_engineering
+
+        engineered = apply_feature_engineering(engineered)
+        request_row = engineered[engineered["Date"] == pd.Timestamp(req.date)].copy()
+        if request_row.empty:
+            raise RuntimeError("Could not construct request feature row.")
+
+        X = registry.pipeline.transform(
+            request_row.drop(columns=["Sales", "Customers"], errors="ignore")
+        )
+        if isinstance(X, pd.DataFrame):
+            X = X.fillna(registry.train_median if registry.train_median is not None else 0)
+            return X.values.astype(float)
+
+        return np.asarray(X, dtype=float)
+    except Exception as exc:
+        logger.warning(f"Falling back to default feature matrix: {exc}")
+        return _fallback_feature_matrix()
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -245,10 +394,8 @@ async def predict(req: PredictionRequest):
     """
     start = time.perf_counter()
 
-    df = request_to_dataframe(req)
-
     try:
-        X = preprocess_request(df)
+        X = preprocess_request(req)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 

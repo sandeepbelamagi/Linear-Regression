@@ -271,19 +271,18 @@ if __name__ == "__main__":
     pipeline = build_preprocessing_pipeline()
     train_input = train_raw.drop(columns=["Sales", "Customers"], errors="ignore")
     test_input  = test_raw.drop(columns=["Sales", "Customers"],  errors="ignore")
+    y_train = train_raw.loc[train_raw["Open"] == 1, "Sales"].values
+    y_test  = test_raw.loc[test_raw["Open"] == 1, "Sales"].values
 
-    X_train_df = pipeline.fit_transform(train_input, train_raw["Sales"].values)
+    X_train_df = pipeline.fit_transform(train_input, y_train)
     X_test_df  = pipeline.transform(test_input)
     X_train_df = X_train_df.fillna(X_train_df.median())
     X_test_df  = X_test_df.fillna(X_train_df.median())
 
     X_train = X_train_df.values.astype(float)
     X_test  = X_test_df.values.astype(float)
-
-    open_train_mask = train_raw["Open"] == 1
-    open_test_mask  = test_raw["Open"] == 1
-    y_train = train_raw.loc[open_train_mask, "Sales"].values[:len(X_train)]
-    y_test  = test_raw.loc[open_test_mask,  "Sales"].values[:len(X_test)]
+    if len(X_train) != len(y_train) or len(X_test) != len(y_test):
+        raise ValueError("Feature/target length mismatch after preprocessing.")
 
     # Bootstrap ensemble (fast model)
     ensemble = BootstrapEnsemble(n_bootstrap=30)

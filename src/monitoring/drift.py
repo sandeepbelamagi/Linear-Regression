@@ -329,8 +329,9 @@ if __name__ == "__main__":
     train_input = train_raw.drop(columns=["Sales", "Customers"], errors="ignore")
     test_input  = test_raw.drop(columns=["Sales", "Customers"],  errors="ignore")
     test_drift_input = test_drift.drop(columns=["Sales", "Customers"], errors="ignore")
+    y_train = train_raw.loc[train_raw["Open"] == 1, "Sales"].values
 
-    X_train_df = pipeline.fit_transform(train_input, train_raw["Sales"].values)
+    X_train_df = pipeline.fit_transform(train_input, y_train)
     X_train_df = X_train_df.fillna(X_train_df.median())
     X_test_df  = pipeline.transform(test_input).fillna(X_train_df.median())
     X_drift_df = pipeline.transform(test_drift_input).fillna(X_train_df.median())
@@ -357,10 +358,14 @@ if __name__ == "__main__":
 
         monthly_residuals = []
         for month, grp in test_drift.groupby("YearMonth"):
-            grp_input = grp.drop(columns=["Sales", "Customers"], errors="ignore")
+            grp_input = grp.drop(columns=["Sales", "Customers", "YearMonth"], errors="ignore")
             X_m = pipeline.transform(grp_input).fillna(X_train_df.median()).values.astype(float)
-            y_m = grp["Sales"].values[:len(X_m)]
-            y_p = model.predict(X_m[:len(y_m)])
+            y_m = grp.loc[grp["Open"] == 1, "Sales"].values
+            if len(y_m) == 0 or len(X_m) == 0:
+                continue
+            if len(X_m) != len(y_m):
+                raise ValueError(f"Feature/target mismatch in month {month}.")
+            y_p = model.predict(X_m)
             alert = monitor.update(y_m, y_p, timestamp=str(month))
             mean_res = float(np.mean(y_m - y_p))
             monthly_residuals.append({"month": month, "mean_residual": mean_res})

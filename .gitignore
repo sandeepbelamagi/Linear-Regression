@@ -1,3 +1,35 @@
 # Python bytecode and cache
-*.pyc
 __pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+.venv*/
+venv/
+env/
+
+# Tool caches and test artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+.ipynb_checkpoints/
+
+# Generated project artifacts
+outputs/
+.tmp/
+*.pkl
+*.joblib
+
+# Local environment/config
+.env
+.env.*
+.streamlit/
+
+# OS junk
+.DS_Store
+Thumbs.db

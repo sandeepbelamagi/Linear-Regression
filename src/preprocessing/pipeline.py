@@ -232,20 +232,11 @@ if __name__ == "__main__":
 
     pipeline = build_preprocessing_pipeline()
 
-    # Fit + transform train (y needed for target encoder)
-    # X_train_raw, y_train = get_X_y(train_raw)
-    y_train = train_raw[train_raw["Open"] == 1]["Sales"].values
-    # We pass full train_raw so pipeline can access all columns it needs
-    X_train = pipeline.fit_transform(train_raw.drop(columns=["Sales", "Customers"],
-                                                     errors="ignore"), y_train)
-
-    # Re-extract y separately (pipeline doesn't touch Sales column)
-    X_train_raw, y_train = get_X_y(train_raw)
-    X_test_raw,  y_test  = get_X_y(test_raw)
-
     # Fit pipeline on train features
     train_input = train_raw.drop(columns=["Sales", "Customers"], errors="ignore")
     test_input  = test_raw.drop(columns=["Sales", "Customers"], errors="ignore")
+    y_train = train_raw.loc[train_raw["Open"] == 1, "Sales"].values
+    y_test  = test_raw.loc[test_raw["Open"] == 1, "Sales"].values
 
     X_train_proc = pipeline.fit_transform(train_input, y_train)
     X_test_proc  = pipeline.transform(test_input)          # NO fit on test

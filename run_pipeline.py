@@ -13,6 +13,7 @@ Outputs are saved to outputs/ folder.
 """
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -20,13 +21,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "src"))
 
+MPLCONFIGDIR = ROOT / ".tmp" / "mplconfig"
+MPLCONFIGDIR.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MPLCONFIGDIR", str(MPLCONFIGDIR))
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 
 def run_phase1():
     print("\n" + "=" * 60)
     print("PHASE 1: Exploratory Data Analysis")
     print("=" * 60)
     import runpy
-    runpy.run_path(str(ROOT / "src" / "eda.py"))
+    runpy.run_path(str(ROOT / "src" / "eda.py"), run_name="__main__")
 
 
 def run_phase2():
@@ -34,7 +44,7 @@ def run_phase2():
     print("PHASE 2: Preprocessing Pipeline")
     print("=" * 60)
     import runpy
-    runpy.run_path(str(ROOT / "src" / "preprocessing" / "pipeline.py"))
+    runpy.run_path(str(ROOT / "src" / "preprocessing" / "pipeline.py"), run_name="__main__")
 
 
 def run_phase3():
@@ -42,7 +52,7 @@ def run_phase3():
     print("PHASE 3: Feature Engineering")
     print("=" * 60)
     import runpy
-    runpy.run_path(str(ROOT / "src" / "features" / "engineer.py"))
+    runpy.run_path(str(ROOT / "src" / "features" / "engineer.py"), run_name="__main__")
 
 
 def run_phase4():
@@ -50,7 +60,7 @@ def run_phase4():
     print("PHASE 4: Model Training & Comparison")
     print("=" * 60)
     import runpy
-    runpy.run_path(str(ROOT / "src" / "models" / "train.py"))
+    runpy.run_path(str(ROOT / "src" / "models" / "train.py"), run_name="__main__")
 
 
 def run_phase5():
@@ -58,7 +68,7 @@ def run_phase5():
     print("PHASE 5: Uncertainty Estimation & Routing")
     print("=" * 60)
     import runpy
-    runpy.run_path(str(ROOT / "src" / "models" / "uncertainty.py"))
+    runpy.run_path(str(ROOT / "src" / "models" / "uncertainty.py"), run_name="__main__")
 
 
 def run_phase6():
@@ -66,7 +76,7 @@ def run_phase6():
     print("PHASE 6: Drift Detection & Monitoring")
     print("=" * 60)
     import runpy
-    runpy.run_path(str(ROOT / "src" / "monitoring" / "drift.py"))
+    runpy.run_path(str(ROOT / "src" / "monitoring" / "drift.py"), run_name="__main__")
 
 
 def run_phase7():
@@ -99,7 +109,7 @@ if __name__ == "__main__":
 
     phases_to_run = args.phase if args.phase else list(PHASES.keys())
 
-    print("\n🚀 Sales Forecasting Production Pipeline")
+    print("\nSales Forecasting Production Pipeline")
     print(f"   Running phases: {phases_to_run}")
 
     total_start = time.time()
@@ -110,9 +120,9 @@ if __name__ == "__main__":
         try:
             fn()
             elapsed = round(time.time() - phase_start, 1)
-            print(f"\n✅ Phase {phase_num} ({name}) complete in {elapsed}s")
+            print(f"\n[ok] Phase {phase_num} ({name}) complete in {elapsed}s")
         except Exception as e:
-            print(f"\n❌ Phase {phase_num} ({name}) failed: {e}")
+            print(f"\n[error] Phase {phase_num} ({name}) failed: {e}")
             import traceback
             traceback.print_exc()
 

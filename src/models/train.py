@@ -387,8 +387,10 @@ if __name__ == "__main__":
     pipeline = build_preprocessing_pipeline()
     train_input = train_raw.drop(columns=["Sales", "Customers"], errors="ignore")
     test_input  = test_raw.drop(columns=["Sales", "Customers"],  errors="ignore")
+    y_train = train_raw.loc[train_raw["Open"] == 1, "Sales"].values
+    y_test  = test_raw.loc[test_raw["Open"] == 1, "Sales"].values
 
-    X_train_df = pipeline.fit_transform(train_input, train_raw["Sales"].values)
+    X_train_df = pipeline.fit_transform(train_input, y_train)
     X_test_df  = pipeline.transform(test_input)
 
     # Fill NaNs from lag features (first few rows)
@@ -397,16 +399,8 @@ if __name__ == "__main__":
 
     X_train = X_train_df.values.astype(float)
     X_test  = X_test_df.values.astype(float)
-    y_train = train_raw.loc[train_raw.index.isin(
-        train_raw[train_raw["Open"] == 1].index), "Sales"].values
-    y_test  = test_raw.loc[test_raw.index.isin(
-        test_raw[test_raw["Open"] == 1].index), "Sales"].values
-
-    # Align lengths (drop_closed removes rows)
-    min_train = min(len(X_train), len(y_train))
-    min_test  = min(len(X_test),  len(y_test))
-    X_train, y_train = X_train[:min_train], y_train[:min_train]
-    X_test,  y_test  = X_test[:min_test],   y_test[:min_test]
+    if len(X_train) != len(y_train) or len(X_test) != len(y_test):
+        raise ValueError("Feature/target length mismatch after preprocessing.")
 
     feature_names = list(X_train_df.columns)
 
